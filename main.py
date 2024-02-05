@@ -1,14 +1,16 @@
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.memory import ConversationBufferWindowMemory
 from langchain_community.embeddings import OllamaEmbeddings
-from langchain.prompts.prompt import PromptTemplate
 from langchain_community.vectorstores.faiss import FAISS
+from langchain.prompts.prompt import PromptTemplate
 from langchain_community.llms.ollama import Ollama
+from langchain_core.documents import Document
 from langchain.chains import LLMChain
 from dotenv import load_dotenv
+from typing import List
 import os
 
-def load_env():
+def load_env() -> tuple[str | None, str | None, str | None]:
     """
     Load the environment variables for the model, template, and pdf
 
@@ -18,9 +20,9 @@ def load_env():
         str: pdf - the path to the pdf
     """
     load_dotenv(override=True)
-    MODEL = os.getenv("MODEL")
-    TEMPLATE = os.getenv("TEMPLATE")
-    PDF = os.getenv("PDF")
+    MODEL: str = os.getenv("MODEL")
+    TEMPLATE: str = os.getenv("TEMPLATE")
+    PDF: str = os.getenv("PDF")
     return MODEL, TEMPLATE, PDF
 
 def load_file(template:str) -> str:
@@ -50,8 +52,8 @@ class PDFChatLLM:
             pdf (str): the path to the pdf
             verbose (bool, optional): Whether to print the inner-workings of the model. Defaults to False.
         """
-        self.__faiss_index = self.__load_pdf(pdf, model)
-        self.__llm_chain = self.__instantiate_llm(model, template, verbose=verbose)
+        self.__faiss_index: FAISS = self.__load_pdf(pdf=pdf, model=model)
+        self.__llm_chain: LLMChain = self.__instantiate_llm(model=model, template=template, verbose=verbose)
         
     def __load_pdf(self, pdf:str, model:str) -> FAISS:
         """
@@ -64,8 +66,8 @@ class PDFChatLLM:
         Returns:
             FAISS: the FAISS index of the pdf
         """
-        loader = PyPDFLoader(pdf)
-        pages = loader.load_and_split()
+        loader:PyPDFLoader = PyPDFLoader(pdf)
+        pages:List[Document] = loader.load_and_split()
         faiss_index: FAISS = FAISS.from_documents(pages, OllamaEmbeddings(model=model))
         return faiss_index
     
@@ -81,11 +83,11 @@ class PDFChatLLM:
         Returns:
             LLMChain: the LLMChain with the model, memory and template instantiated
         """
-        prompt = PromptTemplate(input_variables=["input", "conversation_history", "pdf_search"], 
+        prompt:PromptTemplate = PromptTemplate(input_variables=["input", "conversation_history", "pdf_search"], 
                             template=template)
-        current_history = ConversationBufferWindowMemory(input_key="input", k=15, memory_key="conversation_history")
-        llm = Ollama(model=model)
-        llm_chain = LLMChain(llm=llm, 
+        current_history:ConversationBufferWindowMemory = ConversationBufferWindowMemory(input_key="input", k=15, memory_key="conversation_history")
+        llm:Ollama = Ollama(model=model)
+        llm_chain:LLMChain = LLMChain(llm=llm, 
                             verbose=verbose, 
                             prompt=prompt,
                             memory=current_history)
@@ -101,17 +103,17 @@ class PDFChatLLM:
         Returns:
             str: the response from the model
         """
-        pdf_information = self.__faiss_index.similarity_search(input)
+        pdf_information:List[Document] = self.__faiss_index.similarity_search(query=input)
         return self.__llm_chain.run(input=input, pdf_search=pdf_information)
 
 if __name__ == "__main__":
     model, template, pdf = load_env()
     print("Program started. Please wait as the model and pdf are loaded. This may take a few minutes.\n")
-    llm = PDFChatLLM(model=model, template=load_file(template), pdf=pdf)
+    llm:PDFChatLLM = PDFChatLLM(model=model, template=load_file(template), pdf=pdf)
     print("Model and pdf loaded. You can now query the pdf.\n")
     while True:
         input_text: str = input("Enter a query for a pdf or type 'exit' to exit: ")
         if input_text == "exit":
             print("Exiting...")
             break
-        print(llm.query_pdf(input_text))
+        print(llm.query_pdf(input=input_text))
