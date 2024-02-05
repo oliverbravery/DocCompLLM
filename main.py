@@ -40,7 +40,7 @@ class PDFChatLLM:
     """
     A class to handle the interaction between the pdf and the language model.
     """
-    def __init__(self, model:str, template:str, pdf:str):
+    def __init__(self, model:str, template:str, pdf:str, verbose:bool=False):
         """
         Initialize the class with the model, template, and pdf.
 
@@ -48,9 +48,10 @@ class PDFChatLLM:
             model (str): the name of the ollama model
             template (str): the path to the prompt template
             pdf (str): the path to the pdf
+            verbose (bool, optional): Whether to print the inner-workings of the model. Defaults to False.
         """
         self.__faiss_index = self.__load_pdf(pdf, model)
-        self.__llm_chain = self.__instantiate_llm(model, template)
+        self.__llm_chain = self.__instantiate_llm(model, template, verbose=verbose)
         
     def __load_pdf(self, pdf:str, model:str) -> FAISS:
         """
@@ -68,14 +69,14 @@ class PDFChatLLM:
         faiss_index: FAISS = FAISS.from_documents(pages, OllamaEmbeddings(model=model))
         return faiss_index
     
-    def __instantiate_llm(self, model:str, template:str, verbose:bool=False) -> LLMChain:
+    def __instantiate_llm(self, model:str, template:str, verbose:bool) -> LLMChain:
         """
         Instantiate the LLMChain with the model, memory and template.
 
         Args:
             model (str): the name of the ollama model
             template (str): the path to the prompt template
-            verbose (bool, optional): Whether to print the output of the model. Defaults to False.
+            verbose (bool): whether to print the inner-workings of the model
 
         Returns:
             LLMChain: the LLMChain with the model, memory and template instantiated
@@ -105,4 +106,12 @@ class PDFChatLLM:
 
 if __name__ == "__main__":
     model, template, pdf = load_env()
+    print("Program started. Please wait as the model and pdf are loaded. This may take a few minutes.\n")
     llm = PDFChatLLM(model=model, template=load_file(template), pdf=pdf)
+    print("Model and pdf loaded. You can now query the pdf.\n")
+    while True:
+        input_text: str = input("Enter a query for a pdf or type 'exit' to exit: ")
+        if input_text == "exit":
+            print("Exiting...")
+            break
+        print(llm.query_pdf(input_text))
