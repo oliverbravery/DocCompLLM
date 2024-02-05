@@ -104,7 +104,7 @@ class PDFChatLLM:
             str: the response from the model
         """
         pdf_information:List[Document] = self.__faiss_index.similarity_search(query=input)
-        return self.__llm_chain.run(input=input, pdf_search=pdf_information)
+        return self.__llm_chain.invoke(input=input, pdf_search=pdf_information)
 
 if __name__ == "__main__":
     model, template, pdf = load_env()
@@ -112,8 +112,15 @@ if __name__ == "__main__":
     llm:PDFChatLLM = PDFChatLLM(model=model, template=load_file(template), pdf=pdf)
     print("Model and pdf loaded. You can now query the pdf.\n")
     while True:
-        input_text: str = input("Enter a query for a pdf or type 'exit' to exit: ")
-        if input_text == "exit":
-            print("Exiting...")
-            break
-        print(llm.query_pdf(input=input_text))
+        input_text:str = None
+        try:
+            input_text = input("Enter a query for a pdf or type 'exit' to exit: ")
+        except KeyboardInterrupt:
+            print("\nInvalid input. Please try again.")
+        if input_text:
+            match input_text:
+                case "exit":
+                    print("Exiting...")
+                    break
+                case _:
+                    print(llm.query_pdf(input=input_text))
