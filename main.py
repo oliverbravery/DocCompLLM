@@ -120,7 +120,7 @@ class PDFChatLLM:
         return llm_chain
     
     def __instantiate_qa_llm(self, openai_cite_model:str, verbose:bool=False) -> LLMChain:
-        llm:ChatOpenAI = ChatOpenAI(model_name=openai_cite_model)
+        llm:ChatOpenAI = ChatOpenAI(model_name=openai_cite_model, temperature=0)
         return create_citation_fuzzy_match_chain(llm)
 
     def query_pdf(self, input:str, cite:bool=False) -> str:
