@@ -2,3 +2,6 @@ python-dotenv
 langchain
 pypdf
 faiss-cpu
+langchain-experimental
+langchain_openai
+openai

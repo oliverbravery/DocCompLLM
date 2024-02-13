@@ -1,31 +1,44 @@
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.memory import ConversationBufferWindowMemory
 from langchain_community.embeddings import OllamaEmbeddings
+from langchain_openai.embeddings import OpenAIEmbeddings
 from langchain_community.vectorstores.faiss import FAISS
 from langchain.prompts.prompt import PromptTemplate
 from langchain_community.llms.ollama import Ollama
 from langchain_core.documents import Document
 from langchain.chains import LLMChain
+from langchain.chains import create_citation_fuzzy_match_chain
+from langchain.chains.openai_functions.citation_fuzzy_match import QuestionAnswer, FactWithEvidence
+from langchain_openai import ChatOpenAI
 from dotenv import load_dotenv
 from typing import List
+import argparse
 import os
 
-def load_env() -> tuple[str, str, str, str]:
+parser: argparse.ArgumentParser = argparse.ArgumentParser(description='PDF Chat LLM')
+parser.add_argument('--cite', action='store_true', help='Enable citation chain')
+args: argparse.Namespace = parser.parse_args()
+
+def load_env() -> tuple[str, str, str, str, str, str]:
     """
     Load the environment variables for the model, template, pdf and faiss_save_path.
 
     Returns:
         str: model - the name of the ollama model
+        str: openai_cite_model - the name of the openai model
         str: template - the path to the template
         str: pdf - the path to the pdf
         str: faiss_save_path - the path to save the faiss index
+        str: openai_api_key - the openai key
     """
     load_dotenv(override=True)
     MODEL: str = os.getenv("MODEL")
+    OPENAI_CITE_MODEL: str = os.getenv("OPENAI_CITE_MODEL")
     TEMPLATE: str = os.getenv("TEMPLATE")
     PDF: str = os.getenv("PDF")
     FAISS_SAVE_PATH: str = os.getenv("FAISS_SAVE_PATH")
-    return MODEL, TEMPLATE, PDF, FAISS_SAVE_PATH
+    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY")
+    return MODEL, OPENAI_CITE_MODEL, TEMPLATE, PDF, FAISS_SAVE_PATH, OPENAI_API_KEY
 
 def load_file(template:str) -> str:
     """
@@ -44,7 +57,7 @@ class PDFChatLLM:
     """
     A class to handle the interaction between the pdf and the language model.
     """
-    def __init__(self, model:str, template:str, pdf:str, faiss_save_path:str, verbose:bool=False):
+    def __init__(self, model:str, openai_cite_model:str, template:str, pdf:str, faiss_save_path:str, verbose:bool=False):
         """
         Initialize the class with the model, template, and pdf.
 
@@ -54,10 +67,11 @@ class PDFChatLLM:
             pdf (str): the path to the pdf
             verbose (bool, optional): Whether to print the inner-workings of the model. Defaults to False.
         """
-        self.__faiss_index: FAISS = self.__load_pdf(pdf=pdf, model=model, faiss_save_path=faiss_save_path)
-        self.__llm_chain: LLMChain = self.__instantiate_llm(model=model, template=template, verbose=verbose)
+        self.__faiss_index: FAISS = self.__load_pdf(pdf=pdf, model=model, faiss_save_path=faiss_save_path, cite=True)
+        self.__llm_chain: LLMChain = self.__instantiate_chat_llm(model=model,template=template, verbose=verbose)
+        self.__qa_llm_chain: LLMChain = self.__instantiate_qa_llm(openai_cite_model=openai_cite_model, verbose=verbose)
         
-    def __load_pdf(self, pdf:str, model:str, faiss_save_path:str) -> FAISS:
+    def __load_pdf(self, pdf:str, model:str, faiss_save_path:str, cite:bool) -> FAISS:
         """
         Load the pdf into a FAISS index.
 
@@ -68,7 +82,11 @@ class PDFChatLLM:
         Returns:
             FAISS: the FAISS index of the pdf
         """
-        embeddings:OllamaEmbeddings = OllamaEmbeddings(model=model)
+        embeddings = None
+        if not cite:
+            embeddings:OllamaEmbeddings = OllamaEmbeddings(model=model)
+        else:
+            embeddings:OpenAIEmbeddings = OpenAIEmbeddings()
         try:
             return FAISS.load_local(folder_path=faiss_save_path, embeddings=embeddings)
         except:
@@ -79,7 +97,7 @@ class PDFChatLLM:
         faiss_index.save_local(folder_path=faiss_save_path)
         return faiss_index
     
-    def __instantiate_llm(self, model:str, template:str, verbose:bool) -> LLMChain:
+    def __instantiate_chat_llm(self, model:str, template:str, verbose:bool) -> LLMChain:
         """
         Instantiate the LLMChain with the model, memory and template.
 
@@ -100,8 +118,12 @@ class PDFChatLLM:
                             prompt=prompt,
                             memory=current_history)
         return llm_chain
+    
+    def __instantiate_qa_llm(self, openai_cite_model:str, verbose:bool=False) -> LLMChain:
+        llm:ChatOpenAI = ChatOpenAI(model_name=openai_cite_model)
+        return create_citation_fuzzy_match_chain(llm)
 
-    def query_pdf(self, input:str) -> str:
+    def query_pdf(self, input:str, cite:bool=False) -> str:
         """
         Query the pdf with the input.
 
@@ -112,12 +134,23 @@ class PDFChatLLM:
             str: the response from the model
         """
         pdf_information:List[Document] = self.__faiss_index.similarity_search(query=input)
-        return self.__llm_chain.invoke({"input":input, "pdf_search":pdf_information})
+        if cite:
+            citation_result: dict = self.__qa_llm_chain.invoke({"question":input, "context":pdf_information})
+            response:QuestionAnswer = QuestionAnswer.parse_obj(citation_result["text"])
+            answer_str:str = ""
+            source_str:str = ""
+            for i, answer in enumerate(response.answer):
+                answer_obj: FactWithEvidence = FactWithEvidence.parse_obj(answer)
+                answer_str += f"\n> Answer [{i+1}]: {answer_obj.fact}\n"
+                for source in answer_obj.substring_quote:
+                    source_str += f'\n> Source [{i+1}]: "{source}"\n'
+            return f"{answer_str}\n---------\n{source_str}"
+        return self.__llm_chain.invoke({"input":input, "pdf_search":pdf_information})["text"]
 
 if __name__ == "__main__":
-    model, template, pdf, faiss_save_path = load_env()
+    model, openai_cite_model, template, pdf, faiss_save_path, openai_api_key = load_env()
     print("Program started. Please wait as the model and pdf are loaded. This may take a few minutes.\n")
-    llm:PDFChatLLM = PDFChatLLM(model=model, template=load_file(template), pdf=pdf, faiss_save_path=faiss_save_path)
+    llm:PDFChatLLM = PDFChatLLM(model=model, openai_cite_model=openai_cite_model, template=load_file(template), pdf=pdf, faiss_save_path=faiss_save_path)
     print("Model and pdf loaded. You can now query the pdf.\n")
     while True:
         input_text:str = None
@@ -131,4 +164,5 @@ if __name__ == "__main__":
                     print("Exiting...")
                     break
                 case _:
-                    print(llm.query_pdf(input=input_text)["text"])
+                    response: str = llm.query_pdf(input=input_text, cite=args.cite)
+                    print(f'\n{response}\n')
