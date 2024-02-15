@@ -5,6 +5,7 @@ import os
 
 parser: argparse.ArgumentParser = argparse.ArgumentParser(description='PDF Chat LLM')
 parser.add_argument('--local', action='store_true', help='Use Ollama model instead of OpenAI API. Default is OpenAI API.')
+parser.add_argument('--clean', action='store_true', help='Clears the terminal before displaying the response. Default is False.')
 args: argparse.Namespace = parser.parse_args()
 
 def load_env() -> tuple[str, str, str, str, str, str, str]:
@@ -79,5 +80,8 @@ if __name__ == "__main__":
                     print("Exiting...")
                     break
                 case _:
+                    if args.clean:
+                        os.system('cls||clear')
+                        print(f"User Query: {input_text}\n")
                     response: str = llm.query_pdf(input=input_text)
-                    print(f'\n{response}\n')
+                    print(f'\nLLM Response:\n\n{response}\n')
