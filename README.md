@@ -15,7 +15,6 @@ Alternatively, you can utilize the [OpenAI API](https://openai.com/blog/openai-a
 
 - [Installation](#installation)
 - [Usage](#usage)
-- [Contributing](#contributing)
 - [License](#license)
 
 ## Installation
